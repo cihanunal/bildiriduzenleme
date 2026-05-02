@@ -6,7 +6,6 @@ import datetime
 import io
 
 # --- GOOGLE SHEETS BAGLANTISI ---
-# Linkteki ID'yi alıp pandas'ın doğrudan okuyabileceği "export" linkine çeviriyoruz.
 SHEET_ID = "1Polxg5n-J0VueJifvjlgoGvXITVvnBbJpgSjHJ6imYY"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
@@ -14,8 +13,11 @@ st.set_page_config(page_title="IHMC 2026 Matbaa", page_icon="🖨️", layout="w
 
 # --- YARDIMCI FONKSIYONLAR ---
 def clean_salon(sal):
+    if isinstance(sal, pd.Timestamp) or hasattr(sal, 'month'):
+        if sal.month == 8 and sal.day == 30: return '30 Ağustos Salonu'
+            
     n = str(sal).upper().strip()
-    if '30 A' in n: return '30 Ağustos Salonu'
+    if '30 A' in n or '08-30' in n: return '30 Ağustos Salonu'
     if 'MALAZGIRT' in n or 'MALAZGİRT' in n: return 'Malazgirt Salonu'
     if 'ELIF' in n or 'ELİF' in n: return 'Doç. Dr. Elif Kaya Salonu'
     if 'AHMET' in n or 'EKIZER' in n or 'EKİZER' in n: return 'Dr. Ahmet Ekizer Salonu'
@@ -34,7 +36,7 @@ def parse_zaman(metin):
         except: pass
     return datetime.datetime(2099, 1, 1)
 
-# --- ANA EXCEL OLUSTURMA MOTORU (BULUT UYUMLU - BYTES IO) ---
+# --- ANA EXCEL OLUSTURMA MOTORU ---
 def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
     prog = {}
     tum_zamanlar = set()
@@ -57,7 +59,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
         if anahtar not in prog: prog[anahtar] = []
         prog[anahtar].append({'b': b_adi, 'y': yazarlar, 's': sunucu, 'k': konu, 'sid': sid})
 
-    # --- ÖZEL ETKİNLİKLER VE SOFT RENKLER ---
     soft_palette = ['#DDEBF7', '#FCE4D6', '#E2EFDA', '#FFF2CC', '#E6E6FA', '#F2F2F2']
     color_index = 0
 
@@ -79,7 +80,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             tum_zamanlar.add(zaman_key)
             gosterilecek_ozel_etkinlikler.append((sira, ks, grup, renk_temasi, zaman_key))
 
-    # --- MODERATÖR ATAMASI ---
     musait_oturumlar_mod = list(prog.keys())
     musait_oturumlar_deg = list(prog.keys())
     mod_atamalari = {k: {'mod': 'Daha Sonra İlan Edilecektir', 'deg': 'Daha Sonra İlan Edilecektir'} for k in prog.keys()}
@@ -129,11 +129,9 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
         gun_istatistikleri[t]['oturum_sayisi'] += 1
         gun_istatistikleri[t]['bildiri_sayisi'] += len(bilds)
 
-    # --- DOSYAYI HAFIZADA (RAM) OLUŞTURMA ---
     output = io.BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     
-    # --- HARİTA ---
     map_data = {}
     for (kz, ks), bilds in prog.items():
         if (kz, ks) not in map_data: map_data[(kz, ks)] = {'session_count': 0, 'event_name': None, 'event_color': None}
@@ -185,7 +183,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             else:
                 ws_harita.write(row_idx, col_idx, "BOŞ", f_map_bos)
 
-    # --- ANA PROGRAM ---
     worksheet = workbook.add_worksheet('Kesin_Program')
     worksheet.set_column('A:A', 50); worksheet.set_column('B:B', 60) 
     
@@ -291,7 +288,6 @@ st.markdown(f"**Veri Kaynağı:** [Google Sheets Tablosunu Aç]({SHEET_URL.repla
 if st.button("🚀 GOOGLE SHEETS'TEN VERIYI ÇEK VE MATBAAYI ÇALIŞTIR", type="primary", use_container_width=True):
     with st.spinner('☁️ Veriler buluttan indiriliyor ve işleniyor. Lütfen bekleyin...'):
         try:
-            # Excel'in hepsini tek seferde hafızaya (RAM) indir
             xls = pd.ExcelFile(SHEET_URL)
             
             df_ayar = pd.read_excel(xls, sheet_name=0).fillna('-')
@@ -299,7 +295,6 @@ if st.button("🚀 GOOGLE SHEETS'TEN VERIYI ÇEK VE MATBAAYI ÇALIŞTIR", type="
             df_ozel = pd.read_excel(xls, sheet_name='Ozel_Etkinlikler').fillna('-')
             df_mod = pd.read_excel(xls, sheet_name='Moderatorler').fillna('-')
             
-            # Veri Temizliği
             df_bildiriler.columns = df_bildiriler.columns.str.strip()
             yazar_sutunlari = [f'Yazar {i}' for i in range(1, 9)]
             for col in yazar_sutunlari:
@@ -316,7 +311,6 @@ if st.button("🚀 GOOGLE SHEETS'TEN VERIYI ÇEK VE MATBAAYI ÇALIŞTIR", type="
             df_yz = df_master[df_master['Sunum_Tipi'] == 'Yuzyuze']
             df_on = df_master[df_master['Sunum_Tipi'] == 'Online']
             
-            # Matbaayı Çalıştır ve Çıktıları BytesIO Olarak Al
             excel_yz = excel_bas(df_yz, df_ozel, df_mod, "YUZYUZE")
             excel_on = excel_bas(df_on, df_ozel, df_mod, "ONLINE")
             
