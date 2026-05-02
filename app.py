@@ -21,9 +21,12 @@ def clean_salon(sal):
     if 'MALAZGIRT' in n or 'MALAZGİRT' in n: return 'Malazgirt Salonu'
     if 'ELIF' in n or 'ELİF' in n: return 'Doç. Dr. Elif Kaya Salonu'
     if 'AHMET' in n or 'EKIZER' in n or 'EKİZER' in n: return 'Dr. Ahmet Ekizer Salonu'
-    if 'ZOOM 1' in n or 'ODA 1' in n: return 'Zoom Oda 1'
-    if 'ZOOM 2' in n or 'ODA 2' in n: return 'Zoom Oda 2'
-    if 'ZOOM 3' in n or 'ODA 3' in n: return 'Zoom Oda 3'
+    
+    # TEAMS ODALARI (Excel'de yanlışlıkla Zoom yazsa bile Teams'e çevirir)
+    if 'TEAMS 1' in n or 'ZOOM 1' in n or 'ODA 1' in n: return 'Teams Oda 1'
+    if 'TEAMS 2' in n or 'ZOOM 2' in n or 'ODA 2' in n: return 'Teams Oda 2'
+    if 'TEAMS 3' in n or 'ZOOM 3' in n or 'ODA 3' in n: return 'Teams Oda 3'
+    
     return str(sal).strip()
 
 def parse_zaman(metin):
