@@ -80,7 +80,7 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             tum_zamanlar.add(zaman_key)
             gosterilecek_ozel_etkinlikler.append((sira, ks, grup, renk_temasi, zaman_key))
 
-    # --- NOKTA ATIŞI MODERATÖR ATAMASI ---
+    # --- STANDARTLAŞTIRILMIŞ MODERATÖR ATAMASI ---
     musait_oturumlar_mod = list(prog.keys())
     musait_oturumlar_deg = list(prog.keys())
     mod_atamalari = {k: {'mod': 'Daha Sonra İlan Edilecektir', 'deg': 'Daha Sonra İlan Edilecektir'} for k in prog.keys()}
@@ -92,12 +92,11 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             if tip == "ONLINE" and not is_online_mod: continue 
             if tip == "YUZYUZE" and is_online_mod: continue
             
-            m_gun = str(r.get('zorunlu_gun', '-')).strip()
-            m_oturum = str(r.get('zorunlu_oturum', '-')).strip()
-            m_saat = str(r.get('zorunlu_saat', '-')).strip()
-            # YENİ EKLENEN SÜTUN (Boşsa '-' döner)
-            m_salon_ham = str(r.get('zorunlu_salon', '-')).strip() 
+            # YENİ STANDART SÜTUNLAR BURADAN OKUNUYOR
+            m_gun_saat = str(r.get('Gun_ve_Saat', '-')).strip().replace("Persembe", "Perşembe")
+            m_salon_ham = str(r.get('Salon', '-')).strip()
             m_salon = clean_salon(m_salon_ham) if m_salon_ham != '-' else '-'
+            m_oturum = str(r.get('Oturum_ID', '-')).strip()
             
             gorev_sutunu = str(r.get('Gorev', '-')).strip().lower()
             mod_metni = f"{r.get('unvan_ad_soyad', '-')} ({r.get('kurum', '')})" if str(r.get('kurum', '-')) not in ['-', 'nan', ''] else str(r.get('unvan_ad_soyad', '-'))
@@ -108,24 +107,35 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             hedef_serbest_liste = serbest_degs if is_deg else serbest_mods
 
             atandi_mi = False
-            # Eğer adam kilitlenmek istiyorsa...
-            if m_gun != '-' or m_oturum != '-' or m_saat != '-' or m_salon != '-':
+            
+            # 1. KESİN EŞLEŞME: Hem Saat Hem Salon Verilmişse
+            if m_gun_saat != '-' and m_salon != '-':
+                hedef_tuple = (m_gun_saat, m_salon)
+                if hedef_tuple in hedef_musait_liste:
+                    mod_atamalari[hedef_tuple][role_key] = mod_metni
+                    hedef_musait_liste.remove(hedef_tuple)
+                    atandi_mi = True
+
+            # 2. ESNEK EŞLEŞME: Sadece biri veya birkaçı verildiyse
+            if not atandi_mi and (m_gun_saat != '-' or m_salon != '-' or m_oturum != '-'):
                 for sess in hedef_musait_liste:
                     zaman_metni = sess[0]
-                    salon_metni = sess[1] # Artık salonu da denetliyoruz!
+                    salon_metni = sess[1]
                     oturum_id_metni = prog[sess][0]['sid'] if prog[sess] else "-"
                     
-                    if (m_gun == '-' or m_gun in zaman_metni) and \
-                       (m_oturum == '-' or m_oturum in zaman_metni or m_oturum == oturum_id_metni) and \
-                       (m_saat == '-' or m_saat in zaman_metni) and \
-                       (m_salon == '-' or m_salon == salon_metni): # SALON KİLİDİ BURADA ÇALIŞIYOR
+                    if (m_gun_saat == '-' or m_gun_saat in zaman_metni) and \
+                       (m_salon == '-' or m_salon == salon_metni) and \
+                       (m_oturum == '-' or m_oturum == oturum_id_metni):
                         mod_atamalari[sess][role_key] = mod_metni
                         hedef_musait_liste.remove(sess)
                         atandi_mi = True
                         break
-            if not atandi_mi: hedef_serbest_liste.append(mod_metni)
+            
+            # 3. EŞLEŞME YOKSA: Serbest listeye at (Random atanacak)
+            if not atandi_mi: 
+                hedef_serbest_liste.append(mod_metni)
                 
-        # Boşta kalan ve kilitlenmemiş hocaları açıkta kalan salonlara sırayla ata
+        # Serbest hocaları kalan boşluklara sırayla doldur
         for mod_metni in serbest_mods:
             if musait_oturumlar_mod: mod_atamalari[musait_oturumlar_mod.pop(0)]['mod'] = mod_metni
         for deg_metni in serbest_degs:
@@ -294,7 +304,7 @@ Tüm değişiklikleri **Google Sheets** üzerinden yapın, ardından aşağıdak
 """)
 st.markdown(f"**Veri Kaynağı:** [Google Sheets Tablosunu Aç]({SHEET_URL.replace('/export?format=xlsx', '')})")
 
-if st.button("🚀 GOOGLE SHEETS'TEN VERIYI ÇEK VE MATBAAYI ÇALIŞTIR", type="primary", use_container_width=True):
+if st.button("🚀 GOOGLE SHEETS'TEN VERİYİ ÇEK VE MATBAAYI ÇALIŞTIR", type="primary", use_container_width=True):
     with st.spinner('☁️ Veriler buluttan indiriliyor ve işleniyor. Lütfen bekleyin...'):
         try:
             xls = pd.ExcelFile(SHEET_URL)
