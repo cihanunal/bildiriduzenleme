@@ -21,12 +21,9 @@ def clean_salon(sal):
     if 'MALAZGIRT' in n or 'MALAZGİRT' in n: return 'Malazgirt Salonu'
     if 'ELIF' in n or 'ELİF' in n: return 'Doç. Dr. Elif Kaya Salonu'
     if 'AHMET' in n or 'EKIZER' in n or 'EKİZER' in n: return 'Dr. Ahmet Ekizer Salonu'
-    
-    # TEAMS ODALARI (Excel'de yanlışlıkla Zoom yazsa bile Teams'e çevirir)
     if 'TEAMS 1' in n or 'ZOOM 1' in n or 'ODA 1' in n: return 'Teams Oda 1'
     if 'TEAMS 2' in n or 'ZOOM 2' in n or 'ODA 2' in n: return 'Teams Oda 2'
     if 'TEAMS 3' in n or 'ZOOM 3' in n or 'ODA 3' in n: return 'Teams Oda 3'
-    
     return str(sal).strip()
 
 def parse_zaman(metin):
@@ -83,6 +80,7 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             tum_zamanlar.add(zaman_key)
             gosterilecek_ozel_etkinlikler.append((sira, ks, grup, renk_temasi, zaman_key))
 
+    # --- NOKTA ATIŞI MODERATÖR ATAMASI ---
     musait_oturumlar_mod = list(prog.keys())
     musait_oturumlar_deg = list(prog.keys())
     mod_atamalari = {k: {'mod': 'Daha Sonra İlan Edilecektir', 'deg': 'Daha Sonra İlan Edilecektir'} for k in prog.keys()}
@@ -97,8 +95,11 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             m_gun = str(r.get('zorunlu_gun', '-')).strip()
             m_oturum = str(r.get('zorunlu_oturum', '-')).strip()
             m_saat = str(r.get('zorunlu_saat', '-')).strip()
-            gorev_sutunu = str(r.get('Gorev', '-')).strip().lower()
+            # YENİ EKLENEN SÜTUN (Boşsa '-' döner)
+            m_salon_ham = str(r.get('zorunlu_salon', '-')).strip() 
+            m_salon = clean_salon(m_salon_ham) if m_salon_ham != '-' else '-'
             
+            gorev_sutunu = str(r.get('Gorev', '-')).strip().lower()
             mod_metni = f"{r.get('unvan_ad_soyad', '-')} ({r.get('kurum', '')})" if str(r.get('kurum', '-')) not in ['-', 'nan', ''] else str(r.get('unvan_ad_soyad', '-'))
             
             is_deg = 'deg' in gorev_sutunu
@@ -107,19 +108,24 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             hedef_serbest_liste = serbest_degs if is_deg else serbest_mods
 
             atandi_mi = False
-            if m_gun != '-' or m_oturum != '-' or m_saat != '-':
+            # Eğer adam kilitlenmek istiyorsa...
+            if m_gun != '-' or m_oturum != '-' or m_saat != '-' or m_salon != '-':
                 for sess in hedef_musait_liste:
                     zaman_metni = sess[0]
+                    salon_metni = sess[1] # Artık salonu da denetliyoruz!
                     oturum_id_metni = prog[sess][0]['sid'] if prog[sess] else "-"
+                    
                     if (m_gun == '-' or m_gun in zaman_metni) and \
                        (m_oturum == '-' or m_oturum in zaman_metni or m_oturum == oturum_id_metni) and \
-                       (m_saat == '-' or m_saat in zaman_metni):
+                       (m_saat == '-' or m_saat in zaman_metni) and \
+                       (m_salon == '-' or m_salon == salon_metni): # SALON KİLİDİ BURADA ÇALIŞIYOR
                         mod_atamalari[sess][role_key] = mod_metni
                         hedef_musait_liste.remove(sess)
                         atandi_mi = True
                         break
             if not atandi_mi: hedef_serbest_liste.append(mod_metni)
                 
+        # Boşta kalan ve kilitlenmemiş hocaları açıkta kalan salonlara sırayla ata
         for mod_metni in serbest_mods:
             if musait_oturumlar_mod: mod_atamalari[musait_oturumlar_mod.pop(0)]['mod'] = mod_metni
         for deg_metni in serbest_degs:
