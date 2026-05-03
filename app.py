@@ -36,7 +36,48 @@ def parse_zaman(metin):
         except: pass
     return datetime.datetime(2099, 1, 1)
 
-# --- ANA EXCEL OLUSTURMA MOTORU ---
+# --- YENİ: ÖZET ÇIKARMA MOTORU ---
+def oturum_ozeti_olustur(df_ayar):
+    # Sadece ilgili sütunları alıyoruz
+    df_ozet = df_ayar[['Gun_ve_Saat', 'Salon', 'Oturum_ID', 'Sunum_Tipi']].copy()
+    
+    # Atanmamış veya iptal edilmiş olanları filtrele
+    df_ozet = df_ozet[~df_ozet['Gun_ve_Saat'].isin(['-', 'ATANMADI', 'İPTAL EDİLDİ', 'nan', 'NaN'])]
+    df_ozet = df_ozet.dropna(subset=['Gun_ve_Saat'])
+    
+    # Salon adlarını temizle (Standart olsun diye)
+    df_ozet['Salon'] = df_ozet['Salon'].apply(clean_salon)
+    
+    # Gruplama yap: Her saat ve salonda kaç bildiri var?
+    df_grouped = df_ozet.groupby(['Gun_ve_Saat', 'Salon', 'Oturum_ID', 'Sunum_Tipi']).size().reset_index(name='Atanan_Bildiri_Sayisi')
+    
+    # Tarihe göre kronolojik sıralama yapalım
+    df_grouped['sort_time'] = df_grouped['Gun_ve_Saat'].apply(parse_zaman)
+    df_grouped = df_grouped.sort_values(by=['sort_time', 'Salon']).drop(columns=['sort_time'])
+    
+    # Excel dosyasına yaz
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_grouped.to_excel(writer, index=False, sheet_name='Oturum_Rontgeni')
+        
+        # Biraz görsel makyaj (Sütunları genişletelim)
+        workbook = writer.book
+        worksheet = writer.sheets['Oturum_Rontgeni']
+        baslik_formati = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
+        
+        for col_num, value in enumerate(df_grouped.columns.values):
+            worksheet.write(0, col_num, value, baslik_formati)
+            
+        worksheet.set_column('A:A', 35) # Gun_ve_Saat
+        worksheet.set_column('B:B', 25) # Salon
+        worksheet.set_column('C:C', 15) # Oturum_ID
+        worksheet.set_column('D:D', 15) # Sunum_Tipi
+        worksheet.set_column('E:E', 20) # Bildiri Sayisi
+
+    output.seek(0)
+    return output
+
+# --- ANA EXCEL OLUSTURMA MOTORU (BİLDİRİLER) ---
 def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
     prog = {}
     tum_zamanlar = set()
@@ -80,7 +121,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             tum_zamanlar.add(zaman_key)
             gosterilecek_ozel_etkinlikler.append((sira, ks, grup, renk_temasi, zaman_key))
 
-    # --- STANDARTLAŞTIRILMIŞ MODERATÖR ATAMASI ---
     musait_oturumlar_mod = list(prog.keys())
     musait_oturumlar_deg = list(prog.keys())
     mod_atamalari = {k: {'mod': 'Daha Sonra İlan Edilecektir', 'deg': 'Daha Sonra İlan Edilecektir'} for k in prog.keys()}
@@ -92,7 +132,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             if tip == "ONLINE" and not is_online_mod: continue 
             if tip == "YUZYUZE" and is_online_mod: continue
             
-            # YENİ STANDART SÜTUNLAR BURADAN OKUNUYOR
             m_gun_saat = str(r.get('Gun_ve_Saat', '-')).strip().replace("Persembe", "Perşembe")
             m_salon_ham = str(r.get('Salon', '-')).strip()
             m_salon = clean_salon(m_salon_ham) if m_salon_ham != '-' else '-'
@@ -107,8 +146,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             hedef_serbest_liste = serbest_degs if is_deg else serbest_mods
 
             atandi_mi = False
-            
-            # 1. KESİN EŞLEŞME: Hem Saat Hem Salon Verilmişse
             if m_gun_saat != '-' and m_salon != '-':
                 hedef_tuple = (m_gun_saat, m_salon)
                 if hedef_tuple in hedef_musait_liste:
@@ -116,7 +153,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
                     hedef_musait_liste.remove(hedef_tuple)
                     atandi_mi = True
 
-            # 2. ESNEK EŞLEŞME: Sadece biri veya birkaçı verildiyse
             if not atandi_mi and (m_gun_saat != '-' or m_salon != '-' or m_oturum != '-'):
                 for sess in hedef_musait_liste:
                     zaman_metni = sess[0]
@@ -131,11 +167,9 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
                         atandi_mi = True
                         break
             
-            # 3. EŞLEŞME YOKSA: Serbest listeye at (Random atanacak)
             if not atandi_mi: 
                 hedef_serbest_liste.append(mod_metni)
                 
-        # Serbest hocaları kalan boşluklara sırayla doldur
         for mod_metni in serbest_mods:
             if musait_oturumlar_mod: mod_atamalari[musait_oturumlar_mod.pop(0)]['mod'] = mod_metni
         for deg_metni in serbest_degs:
@@ -296,15 +330,15 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
     output.seek(0)
     return output
 
+
 # --- STREAMLIT ARAYUZU ---
 st.title("🖨️ IHMC 2026 - Bulut Matbaa")
-st.markdown("""
-Bu sistem, verileri doğrudan Google Sheets üzerinden okur.
-Tüm değişiklikleri **Google Sheets** üzerinden yapın, ardından aşağıdaki butona basarak Nihai Excel çıktılarınızı indirin.
-""")
+st.markdown("Verileri doğrudan Google Sheets üzerinden okur. Tüm değişiklikleri oradan yapıp Nihai Excel çıktılarınızı ve Özetlerinizi indirebilirsiniz.")
 st.markdown(f"**Veri Kaynağı:** [Google Sheets Tablosunu Aç]({SHEET_URL.replace('/export?format=xlsx', '')})")
 
-if st.button("🚀 GOOGLE SHEETS'TEN VERİYİ ÇEK VE MATBAAYI ÇALIŞTIR", type="primary", use_container_width=True):
+st.markdown("---")
+st.subheader("1. KESİN PROGRAMI OLUŞTUR")
+if st.button("🚀 MATBAAYI ÇALIŞTIR VE PROGRAMLARI ÇIKAR", type="primary", use_container_width=True):
     with st.spinner('☁️ Veriler buluttan indiriliyor ve işleniyor. Lütfen bekleyin...'):
         try:
             xls = pd.ExcelFile(SHEET_URL)
@@ -333,7 +367,7 @@ if st.button("🚀 GOOGLE SHEETS'TEN VERİYİ ÇEK VE MATBAAYI ÇALIŞTIR", type
             excel_yz = excel_bas(df_yz, df_ozel, df_mod, "YUZYUZE")
             excel_on = excel_bas(df_on, df_ozel, df_mod, "ONLINE")
             
-            st.success("✅ İŞLEM BAŞARILI! Nihai programlar hazır, aşağıdaki butonlardan indirebilirsiniz.")
+            st.success("✅ İŞLEM BAŞARILI! Nihai programlar hazır, indirebilirsiniz.")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -354,4 +388,27 @@ if st.button("🚀 GOOGLE SHEETS'TEN VERİYİ ÇEK VE MATBAAYI ÇALIŞTIR", type
                 )
 
         except Exception as e:
-            st.error(f"❌ Bir hata oluştu! Lütfen Google Sheets dosyasında 'Bildiriler', 'Ozel_Etkinlikler', 'Moderatorler' sekmelerinin tam olduğundan emin olun.\n\nDetay: {e}")
+            st.error(f"❌ Bir hata oluştu! Lütfen sayfaların (Bildiriler, Ozel_Etkinlikler, vs.) tam olduğundan emin olun.\n\nDetay: {e}")
+
+st.markdown("---")
+st.subheader("2. OTURUM ÖZETİ (KAPASİTE KONTROLÜ)")
+st.markdown("Hangi gün, saat kaçta, hangi salonlarda oturum açıldığını ve içlerinde kaçar bildiri olduğunu tek bir Excel tablosunda listeler.")
+
+if st.button("📊 OTURUM ÖZETİNİ ÇIKAR", use_container_width=True):
+    with st.spinner('Özet dosyanız hazırlanıyor...'):
+        try:
+            xls = pd.ExcelFile(SHEET_URL)
+            df_ayar = pd.read_excel(xls, sheet_name=0).fillna('-')
+            
+            ozet_excel = oturum_ozeti_olustur(df_ayar)
+            st.success("✅ Özet tablosu başarıyla oluşturuldu!")
+            
+            st.download_button(
+                label="📥 OTURUM ÖZETİNİ İNDİR (.xlsx)",
+                data=ozet_excel,
+                file_name="Oturum_Rontgen_Ozeti.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"❌ Özet çıkarılırken bir hata oluştu.\n\nDetay: {e}")
