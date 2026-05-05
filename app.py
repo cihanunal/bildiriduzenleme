@@ -43,7 +43,7 @@ def parse_zaman(metin):
         except: pass
     return datetime.datetime(2099, 1, 1)
 
-# --- WORD İÇİN HÜCRE RENKLENDİRME FONKSİYONU ---
+# --- WORD İÇİN HÜCRE RENKLENDİRME VE SATIR EKLEME FONKSİYONLARI ---
 def set_cell_bg(cell, hex_color):
     hex_color = hex_color.replace('#', '')
     tcPr = cell._tc.get_or_add_tcPr()
@@ -53,21 +53,30 @@ def set_cell_bg(cell, hex_color):
     shd.set(qn('w:fill'), hex_color)
     tcPr.append(shd)
 
-def add_merged_row(table, text, bg_color, text_color=(0,0,0), bold=False):
+def add_merged_row(table, text, bg_color, text_color=(0,0,0), bold=False, align=None):
     row = table.add_row()
     cell = row.cells[0]
     cell.merge(row.cells[1])
     cell.text = text
     set_cell_bg(cell, bg_color)
     for paragraph in cell.paragraphs:
+        if align == 'center':
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in paragraph.runs:
             run.font.color.rgb = RGBColor(*text_color)
             run.font.bold = bold
     return row
 
-# --- WORD OLUSTURMA MOTORU (EXCEL GÖRÜNÜMÜNDE) ---
+def add_spacer_row(table):
+    row = table.add_row()
+    cell = row.cells[0]
+    cell.merge(row.cells[1])
+    cell.text = ""
+    set_cell_bg(cell, "FFFFFF")  # Beyaz arka planla oturumlar arasına boşluk bırakır
+    return row
+
+# --- WORD OLUSTURMA MOTORU ---
 def word_bas(df_bildiriler, df_ozel, df_mod, tip):
-    # Veriyi Excel mantığıyla aynı şekilde topluyoruz
     prog = {}
     for index, r in df_bildiriler.iterrows():
         b_adi = str(r['Bildiri_Adi'])
@@ -92,7 +101,6 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
             ts = str(grup.iloc[0].get('tarih_saat', '-')).strip().replace("Persembe", "Perşembe")
             gosterilecek_ozel_etkinlikler.append((sira, ks, grup, renk_temasi, ts))
 
-    # Mod atamaları mantığı
     mod_atamalari = {k: {'mod': 'Daha Sonra İlan Edilecektir', 'deg': 'Daha Sonra İlan Edilecektir'} for k in prog.keys()}
     if not df_mod.empty:
         for _, r in df_mod.iterrows():
@@ -118,10 +126,9 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
         gun_istatistikleri[t]['oturum_sayisi'] += 1
         gun_istatistikleri[t]['bildiri_sayisi'] += len(bilds)
 
-    # DOCX OLUŞTURMA BAŞLIYOR (Tablolu ve Renkli)
     doc = Document()
     
-    # Sayfayı yatay (Landscape) yapalım ki tablo sığsın
+    # Sayfayı yatay (Landscape) yap
     section = doc.sections[-1]
     new_width, new_height = section.page_height, section.page_width
     section.orientation = 1
@@ -136,35 +143,40 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
     table.style = 'Table Grid'
     table.autofit = False
     
-    # Özel Etkinlikler
+    # --- ÖZEL ETKİNLİKLER ---
     if len(gosterilecek_ozel_etkinlikler) > 0:
-        add_merged_row(table, "ÖZEL ETKİNLİKLER", "000000", text_color=(255,255,255), bold=True)
+        add_merged_row(table, "ÖZEL ETKİNLİKLER", "000000", text_color=(255,255,255), bold=True, align='center')
         for sira, ks, grup, renk_temasi, ts in gosterilecek_ozel_etkinlikler:
-            metinler = [f"{ts} | HALL: {ks}"]
+            add_spacer_row(table) # Etkinlikler arası boşluk
+            add_merged_row(table, f"{ts} | HALL: {ks}", renk_temasi, bold=True, align='center')
+            
+            # Etkinlikleri tek satırda birleştirmek yerine ayrı ayrı ekliyoruz (İç çizgiler belli olsun diye)
             for index, r in grup.iterrows():
                 m = "\n".join([str(r.get(c, '-')).strip() for c in ['ana_baslik', 'alt_baslik', 'sol_metin', 'sag_metin'] if str(r.get(c, '-')).strip() not in ['-', 'nan', '']])
-                metinler.append(m)
-            add_merged_row(table, "\n\n".join(metinler), renk_temasi)
-            
-    # Bilimsel Program
-    add_merged_row(table, "--- BİLİMSEL BİLDİRİ PROGRAMI ---", "000000", text_color=(255,255,255), bold=True)
+                add_merged_row(table, m, renk_temasi, align='center')
+                
+    add_spacer_row(table) # Bilimsel programa geçmeden önce boşluk
+    add_merged_row(table, "--- BİLİMSEL BİLDİRİ PROGRAMI ---", "000000", text_color=(255,255,255), bold=True, align='center')
     
     mevcut_islenen_gun = ""
     sirali_oturumlar = sorted(prog.items(), key=lambda x: parse_zaman(x[0][0]))
     
-    for (oturum_zaman, sal), bilds in sirali_oturumlar:
+    for idx, ((oturum_zaman, sal), bilds) in enumerate(sirali_oturumlar):
         parcalar = oturum_zaman.split(' | ')
         t = parcalar[0] if len(parcalar) > 0 else oturum_zaman
         sa = parcalar[1] if len(parcalar) > 1 else "-"
         sn = bilds[0]['sid'] if bilds else "-"
         
+        add_spacer_row(table) # Her oturum / yeni gün öncesi boşluk bırak (Yapışıklığı engeller)
+        
         if t != mevcut_islenen_gun:
             mevcut_islenen_gun = t
-            add_merged_row(table, f">>> {t.upper()} BİLİMSEL PROGRAMI <<<", "B4C6E7", bold=True)
-            add_merged_row(table, "Her oturumdaki moderatör oturumu yönetecek ve Oturum Değerlendirici ile birbirinden bağımsız olarak EN İYİ BİLDİRİ (BEST PAPER) ÖDÜLLERi için bildiri sunumlarını değerlendireceklerdir.", "FFF2CC")
+            add_merged_row(table, f">>> {t.upper()} BİLİMSEL PROGRAMI <<<", "B4C6E7", bold=True, align='center')
+            add_merged_row(table, "Her oturumdaki moderatör oturumu yönetecek ve Oturum Değerlendirici ile birbirinden bağımsız olarak EN İYİ BİLDİRİ (BEST PAPER) ÖDÜLLERi için bildiri sunumlarını değerlendireceklerdir.", "FFF2CC", align='center')
             o_sayi = gun_istatistikleri.get(t, {}).get('oturum_sayisi', 0)
             b_sayi = gun_istatistikleri.get(t, {}).get('bildiri_sayisi', 0)
-            add_merged_row(table, f"Bugün toplam {o_sayi} adet bildiri sunum oturumu gerçekleşecek ve {b_sayi} adet bildiri sunulacaktır.", "E2EFDA", bold=True, text_color=(55,86,35))
+            add_merged_row(table, f"Bugün toplam {o_sayi} adet bildiri sunum oturumu gerçekleşecek ve {b_sayi} adet bildiri sunulacaktır.", "E2EFDA", bold=True, text_color=(55,86,35), align='center')
+            add_spacer_row(table) # Gün bilgisinden sonra ilk oturuma geçerken boşluk
             
         mod_isim = mod_atamalari[(oturum_zaman, sal)]['mod']
         deg_isim = mod_atamalari[(oturum_zaman, sal)]['deg']
@@ -178,9 +190,31 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
             bg_color = "F2F2F2" if is_cift else "FFFFFF"
             
             row = table.add_row()
-            row.cells[0].text = b['y']
+            
+            # --- YAZAR VE SUNUCU (ALT ÇİZGİ) MANTIĞI ---
+            yazarlar_metni = b['y']
+            sunucu = b['s']
+            
+            cell_yazar = row.cells[0]
+            cell_yazar.text = "" 
+            set_cell_bg(cell_yazar, bg_color)
+            p = cell_yazar.paragraphs[0]
+            
+            if sunucu and sunucu not in ['-', 'nan', ''] and sunucu in yazarlar_metni:
+                parcalar_yazar = yazarlar_metni.split(sunucu, 1)
+                if parcalar_yazar[0]:
+                    p.add_run(parcalar_yazar[0])
+                # Sunucuyu Kalın ve Altı Çizili Yapıyoruz
+                run_s = p.add_run(sunucu)
+                run_s.underline = True
+                run_s.bold = True
+                if len(parcalar_yazar) > 1 and parcalar_yazar[1]:
+                    p.add_run(parcalar_yazar[1])
+            else:
+                p.add_run(yazarlar_metni)
+
+            # Bildiri Adı
             row.cells[1].text = b['b']
-            set_cell_bg(row.cells[0], bg_color)
             set_cell_bg(row.cells[1], bg_color)
 
     output = io.BytesIO()
@@ -188,7 +222,7 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
     output.seek(0)
     return output
 
-# --- ÖZET ÇIKARMA MOTORU (ORİJİNAL) ---
+# --- ÖZET ÇIKARMA MOTORU (ORİJİNAL - DOKUNULMADI) ---
 def oturum_ozeti_olustur(df_ayar):
     df_ozet = df_ayar[['Gun_ve_Saat', 'Salon', 'Oturum_ID', 'Sunum_Tipi']].copy()
     df_ozet = df_ozet[~df_ozet['Gun_ve_Saat'].isin(['-', 'ATANMADI', 'İPTAL EDİLDİ', 'nan', 'NaN'])]
@@ -214,7 +248,7 @@ def oturum_ozeti_olustur(df_ayar):
     output.seek(0)
     return output
 
-# --- ANA EXCEL OLUSTURMA MOTORU (BİLDİRİLER - ORİJİNAL) ---
+# --- ANA EXCEL OLUSTURMA MOTORU (ORİJİNAL - DOKUNULMADI) ---
 def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
     prog = {}
     tum_zamanlar = set()
@@ -362,7 +396,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
                 ws_harita.write(row_idx, col_idx, "BOŞ", f_map_bos)
 
     worksheet = workbook.add_worksheet('Kesin_Program')
-    # METİNLERİN SIĞMASI İÇİN GENİŞLİKLERİ ARTIRDIK (Eskiden 50 ve 60'tı, şimdi 65 ve 95)
     worksheet.set_column('A:A', 65); worksheet.set_column('B:B', 95) 
     
     fmt = {
@@ -382,8 +415,6 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
     }
 
     satir_no = 0
-    
-    # EN BAŞA İSTENİLEN ANA BAŞLIĞI EKLİYORUZ
     ana_baslik = "11. IHMC FİZİKİ / FACE TO FACE PROGRAM" if tip == "YUZYUZE" else "11. IHMC ONLINE (DIGITAL) PROGRAM"
     worksheet.merge_range(satir_no, 0, satir_no, 1, ana_baslik, fmt['baslik_dev'])
     worksheet.set_row(satir_no, 40)
@@ -446,7 +477,7 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
             if sunucu == yazarlar_metni and sunucu not in ['-', 'nan', '']: 
                 worksheet.write(satir_no, 0, yazarlar_metni, f_ul_cell)
             elif sunucu in yazarlar_metni and sunucu not in ['-', 'nan', '']:
-                parcalar_yazar = yazarlar_metni.split(sunucu)
+                parcalar_yazar = yazarlar_metni.split(sunucu, 1)
                 rich_text = []
                 if parcalar_yazar[0]: rich_text.extend([f_norm, parcalar_yazar[0]])
                 rich_text.extend([f_ul_txt, sunucu])
