@@ -256,7 +256,7 @@ def excel_bas(df_bildiriler, df_ozel, df_mod, tip):
 
     satir_no = 0
     if len(gosterilecek_ozel_etkinlikler) > 0:
-        worksheet.merge_range(satir_no, 0, satir_no, 1, "--- 11. IHMC FİZİKİ / FACE TO FACE PROGRAM \n ÖZEL ETKİNLİKLER ---", fmt['ayirici']); satir_no += 1
+        worksheet.merge_range(satir_no, 0, satir_no, 1, "ÖZEL ETKİNLİKLER", fmt['ayirici']); satir_no += 1
         for sira, ks, grup, renk_temasi, z_key in gosterilecek_ozel_etkinlikler:
             ts = str(grup.iloc[0].get('tarih_saat', '-')).strip().replace("07.05.2026", "07.05.2026 Perşembe /").replace("08.05.2026", "08.05.2026 Cuma /")
             if renk_temasi not in dinamik_renk_cache:
