@@ -67,15 +67,7 @@ def add_merged_row(table, text, bg_color, text_color=(0,0,0), bold=False, align=
             run.font.bold = bold
     return row
 
-def add_spacer_row(table):
-    row = table.add_row()
-    cell = row.cells[0]
-    cell.merge(row.cells[1])
-    cell.text = ""
-    set_cell_bg(cell, "FFFFFF")  # Beyaz arka planla oturumlar arasına boşluk bırakır
-    return row
-
-# --- WORD OLUSTURMA MOTORU ---
+# --- WORD OLUSTURMA MOTORU (TABLOLAR AYRILDI VE ORTALANDI) ---
 def word_bas(df_bildiriler, df_ozel, df_mod, tip):
     prog = {}
     for index, r in df_bildiriler.iterrows():
@@ -138,25 +130,31 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
     ana_baslik = "11. IHMC FİZİKİ / FACE TO FACE PROGRAM" if tip == "YUZYUZE" else "11. IHMC ONLINE (DIGITAL) PROGRAM"
     h = doc.add_heading(ana_baslik, level=1)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph() # Başlıktan sonra boşluk
 
-    table = doc.add_table(rows=0, cols=2)
-    table.style = 'Table Grid'
-    table.autofit = False
-    
     # --- ÖZEL ETKİNLİKLER ---
     if len(gosterilecek_ozel_etkinlikler) > 0:
-        add_merged_row(table, "ÖZEL ETKİNLİKLER", "000000", text_color=(255,255,255), bold=True, align='center')
+        t_ozel_baslik = doc.add_table(rows=0, cols=2)
+        t_ozel_baslik.style = 'Table Grid'
+        add_merged_row(t_ozel_baslik, "ÖZEL ETKİNLİKLER", "000000", text_color=(255,255,255), bold=True, align='center')
+        doc.add_paragraph() # Ayrı tablo olması için boşluk
+
         for sira, ks, grup, renk_temasi, ts in gosterilecek_ozel_etkinlikler:
-            add_spacer_row(table) # Etkinlikler arası boşluk
-            add_merged_row(table, f"{ts} | HALL: {ks}", renk_temasi, bold=True, align='center')
+            t_etk = doc.add_table(rows=0, cols=2)
+            t_etk.style = 'Table Grid'
+            add_merged_row(t_etk, f"{ts} | HALL: {ks}", renk_temasi, bold=True, align='center')
             
-            # Etkinlikleri tek satırda birleştirmek yerine ayrı ayrı ekliyoruz (İç çizgiler belli olsun diye)
             for index, r in grup.iterrows():
                 m = "\n".join([str(r.get(c, '-')).strip() for c in ['ana_baslik', 'alt_baslik', 'sol_metin', 'sag_metin'] if str(r.get(c, '-')).strip() not in ['-', 'nan', '']])
-                add_merged_row(table, m, renk_temasi, align='center')
-                
-    add_spacer_row(table) # Bilimsel programa geçmeden önce boşluk
-    add_merged_row(table, "--- BİLİMSEL BİLDİRİ PROGRAMI ---", "000000", text_color=(255,255,255), bold=True, align='center')
+                add_merged_row(t_etk, m, renk_temasi, align='center')
+            
+            doc.add_paragraph() # Diğer özel etkinliğe geçmeden önce tamamen ayrı tablo oluşturacak boşluk
+
+    # --- BİLİMSEL PROGRAM ---
+    t_bilimsel_baslik = doc.add_table(rows=0, cols=2)
+    t_bilimsel_baslik.style = 'Table Grid'
+    add_merged_row(t_bilimsel_baslik, "--- BİLİMSEL BİLDİRİ PROGRAMI ---", "000000", text_color=(255,255,255), bold=True, align='center')
+    doc.add_paragraph() # Bilimsel programa başlarken ayrı tablo oluşması için boşluk
     
     mevcut_islenen_gun = ""
     sirali_oturumlar = sorted(prog.items(), key=lambda x: parse_zaman(x[0][0]))
@@ -167,29 +165,36 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
         sa = parcalar[1] if len(parcalar) > 1 else "-"
         sn = bilds[0]['sid'] if bilds else "-"
         
-        add_spacer_row(table) # Her oturum / yeni gün öncesi boşluk bırak (Yapışıklığı engeller)
-        
+        # Gün Değişimi Başlığı (Ayrı Tablo)
         if t != mevcut_islenen_gun:
             mevcut_islenen_gun = t
-            add_merged_row(table, f">>> {t.upper()} BİLİMSEL PROGRAMI <<<", "B4C6E7", bold=True, align='center')
-            add_merged_row(table, "Her oturumdaki moderatör oturumu yönetecek ve Oturum Değerlendirici ile birbirinden bağımsız olarak EN İYİ BİLDİRİ (BEST PAPER) ÖDÜLLERi için bildiri sunumlarını değerlendireceklerdir.", "FFF2CC", align='center')
+            t_gun = doc.add_table(rows=0, cols=2)
+            t_gun.style = 'Table Grid'
+            
+            add_merged_row(t_gun, f">>> {t.upper()} BİLİMSEL PROGRAMI <<<", "B4C6E7", bold=True, align='center')
+            add_merged_row(t_gun, "Her oturumdaki moderatör oturumu yönetecek ve Oturum Değerlendirici ile birbirinden bağımsız olarak EN İYİ BİLDİRİ (BEST PAPER) ÖDÜLLERi için bildiri sunumlarını değerlendireceklerdir.", "FFF2CC", align='center')
             o_sayi = gun_istatistikleri.get(t, {}).get('oturum_sayisi', 0)
             b_sayi = gun_istatistikleri.get(t, {}).get('bildiri_sayisi', 0)
-            add_merged_row(table, f"Bugün toplam {o_sayi} adet bildiri sunum oturumu gerçekleşecek ve {b_sayi} adet bildiri sunulacaktır.", "E2EFDA", bold=True, text_color=(55,86,35), align='center')
-            add_spacer_row(table) # Gün bilgisinden sonra ilk oturuma geçerken boşluk
+            add_merged_row(t_gun, f"Bugün toplam {o_sayi} adet bildiri sunum oturumu gerçekleşecek ve {b_sayi} adet bildiri sunulacaktır.", "E2EFDA", bold=True, text_color=(55,86,35), align='center')
             
+            doc.add_paragraph() # Gün bloğundan sonra ilk oturuma geçmeden önce boşluk
+
+        # --- HER OTURUM İÇİN YEPYENİ BİR TABLO ---
         mod_isim = mod_atamalari[(oturum_zaman, sal)]['mod']
         deg_isim = mod_atamalari[(oturum_zaman, sal)]['deg']
         oturum_metni = f"HALL: {sal}\n{sn}\n\n{bilds[0]['k'].upper()}\nModerator: {mod_isim}\nOturum Değerlendirici: {deg_isim}"
         
-        add_merged_row(table, f"{t} | {sa}", "FFD966", bold=True)
-        add_merged_row(table, oturum_metni, "FFE699", bold=True)
+        t_oturum = doc.add_table(rows=0, cols=2)
+        t_oturum.style = 'Table Grid'
+
+        add_merged_row(t_oturum, f"{t} | {sa}", "FFD966", bold=True)
+        add_merged_row(t_oturum, oturum_metni, "FFE699", bold=True)
         
         for i, b in enumerate(bilds):
             is_cift = (i % 2 == 1)
             bg_color = "F2F2F2" if is_cift else "FFFFFF"
             
-            row = table.add_row()
+            row = t_oturum.add_row()
             
             # --- YAZAR VE SUNUCU (ALT ÇİZGİ) MANTIĞI ---
             yazarlar_metni = b['y']
@@ -216,6 +221,9 @@ def word_bas(df_bildiriler, df_ozel, df_mod, tip):
             # Bildiri Adı
             row.cells[1].text = b['b']
             set_cell_bg(row.cells[1], bg_color)
+
+        # Oturum tablosu bitti, bir sonraki oturum yapışmasın diye araya Word paragraf boşluğu ekliyoruz!
+        doc.add_paragraph()
 
     output = io.BytesIO()
     doc.save(output)
